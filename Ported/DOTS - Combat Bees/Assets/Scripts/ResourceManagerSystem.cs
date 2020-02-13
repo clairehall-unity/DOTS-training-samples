@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using System.Resources;
 using Unity.Collections;
@@ -47,31 +47,42 @@ public class ResourceManagerSystem : JobComponentSystem
     }
     
     //[BurstCompile]
-    public struct ResourceMovementJob : IJobForEach<Resource, Translation>
+    public struct ResourceMovementJob : IJobForEachWithEntity<Resource, Translation>
     {
         public float DeltaTime;
+        public EntityCommandBuffer.Concurrent CommandBuffer;
 
-        public void Execute([ReadOnly] ref Resource resource, ref Translation translation)
+        public void Execute(Entity entity, int index, [ReadOnly] ref Resource resource, ref Translation translation)
         {
             translation.Value.y += resource.Gravity * DeltaTime;
+
+            if (translation.Value.y < 0)
+            {
+                CommandBuffer.AddComponent(index, entity, new StackedResource());
+            }
         }
     }
 
-    private EntityCommandBufferSystem CommandBufferSystem;
-    
+    EntityCommandBufferSystem EndInitCommandBufferSystem;
+    EntityCommandBufferSystem EndSimCommandBufferSystem;
+
     protected override void OnCreate()
     {
-        CommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
+        EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
+        EndSimCommandBufferSystem = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
     }
 
     protected override JobHandle OnUpdate(JobHandle inputDependencies)
     {
-        JobHandle jobHandle = new SpawnResourcesJob{ CommandBuffer = CommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(this, inputDependencies);
-
+        JobHandle jobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(this, inputDependencies);
+        EndInitCommandBufferSystem.AddJobHandleForProducer(jobHandle);
+        
         inputDependencies = JobHandle.CombineDependencies(jobHandle, inputDependencies);
+        
 
-        jobHandle = JobHandle.CombineDependencies(jobHandle, new ResourceMovementJob{ DeltaTime = Time.DeltaTime }.Schedule(this, inputDependencies));
-
+        jobHandle = JobHandle.CombineDependencies(jobHandle, new ResourceMovementJob{ CommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent(), DeltaTime = Time.DeltaTime }.Schedule(this, inputDependencies));
+        EndSimCommandBufferSystem.AddJobHandleForProducer(jobHandle);
+        
         return jobHandle;
     }
     
