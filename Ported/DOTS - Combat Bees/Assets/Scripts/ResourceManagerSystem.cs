@@ -14,6 +14,7 @@ public class ResourceManagerSystem : JobComponentSystem
     public struct Resource : IComponentData
     {
         public float Gravity;
+        public float3 Velocity;
     }
 
     public struct StackedResource : IComponentData
@@ -39,22 +40,23 @@ public class ResourceManagerSystem : JobComponentSystem
                 
                 CommandBuffer.SetComponent(index, resourceEntity, new Translation { Value = position });
                 CommandBuffer.AddComponent(index, resourceEntity, new NonUniformScale{ Value = new float3(resourceManagerData.ResourceSize,  resourceManagerData.ResourceSize * 0.5f, resourceManagerData.ResourceSize) });
-                CommandBuffer.AddComponent(index, resourceEntity, new Resource{ Gravity = resourceManagerData.ResourceGravity });
+                CommandBuffer.AddComponent(index, resourceEntity, new Resource{ Gravity = resourceManagerData.ResourceGravity, Velocity = new float3(0f, 0f, 0f ) });
             }
             
             CommandBuffer.RemoveComponent<SpawnResourceData>(index, entity);
         }
     }
-    
+
     //[BurstCompile]
     public struct ResourceMovementJob : IJobForEachWithEntity<Resource, Translation>
     {
         public float DeltaTime;
         public EntityCommandBuffer.Concurrent CommandBuffer;
 
-        public void Execute(Entity entity, int index, [ReadOnly] ref Resource resource, ref Translation translation)
+        public void Execute(Entity entity, int index, ref Resource resource, ref Translation translation)
         {
-            translation.Value.y += resource.Gravity * DeltaTime;
+            resource.Velocity.y += resource.Gravity * DeltaTime;
+            translation.Value += resource.Velocity * DeltaTime;
 
             if (translation.Value.y < 0)
             {
@@ -66,21 +68,26 @@ public class ResourceManagerSystem : JobComponentSystem
     EntityCommandBufferSystem EndInitCommandBufferSystem;
     EntityCommandBufferSystem EndSimCommandBufferSystem;
 
+    EntityQuery UnstackedResources;
+    EntityQuery SpawnResources;
+
     protected override void OnCreate()
     {
         EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
         EndSimCommandBufferSystem = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
+        
+        UnstackedResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>());
+        SpawnResources = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>(), ComponentType.ReadOnly<SpawnResourceData>());
     }
 
     protected override JobHandle OnUpdate(JobHandle inputDependencies)
     {
-        JobHandle jobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(this, inputDependencies);
+        JobHandle jobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(SpawnResources, inputDependencies);
         EndInitCommandBufferSystem.AddJobHandleForProducer(jobHandle);
         
         inputDependencies = JobHandle.CombineDependencies(jobHandle, inputDependencies);
-        
 
-        jobHandle = JobHandle.CombineDependencies(jobHandle, new ResourceMovementJob{ CommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent(), DeltaTime = Time.DeltaTime }.Schedule(this, inputDependencies));
+        jobHandle = JobHandle.CombineDependencies(jobHandle, new ResourceMovementJob{ CommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent(), DeltaTime = Time.DeltaTime }.Schedule(UnstackedResources, inputDependencies));
         EndSimCommandBufferSystem.AddJobHandleForProducer(jobHandle);
         
         return jobHandle;
