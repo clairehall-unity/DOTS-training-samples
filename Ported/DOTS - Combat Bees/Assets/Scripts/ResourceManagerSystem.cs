@@ -32,7 +32,7 @@ public class ResourceManagerSystem : JobComponentSystem
         
         public void Execute(Entity entity, int index, [ReadOnly] ref ResourceManagerData resourceManagerData, [ReadOnly] ref SpawnResourceData spawnResourceData)
         {
-            var random = new Unity.Mathematics.Random((uint)System.DateTime.Now.Millisecond);
+            var random = new Unity.Mathematics.Random((uint)System.DateTime.Now.Millisecond + 1);
             
             for (int x = 0; x < spawnResourceData.SpawnCount; ++x)
             {
