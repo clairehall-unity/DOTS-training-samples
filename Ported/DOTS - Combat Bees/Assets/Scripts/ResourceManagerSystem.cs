@@ -19,6 +19,7 @@ public class ResourceManagerSystem : JobComponentSystem
         public int GridIndex;
         
         //TODO: This should be shared data
+        public float Size;
         public float Gravity;
         public float SnapStiffness;
         public Vector2 MinGridPos;
@@ -52,6 +53,7 @@ public class ResourceManagerSystem : JobComponentSystem
                 CommandBuffer.AddComponent(index, resourceEntity, new NonUniformScale{ Value = new float3(resourceManagerData.ResourceSize,  resourceManagerData.ResourceSize * 0.5f, resourceManagerData.ResourceSize) });
                 CommandBuffer.AddComponent(index, resourceEntity, new Resource
                 {
+                    Size = resourceManagerData.ResourceSize,
                     Gravity = resourceManagerData.ResourceGravity,
                     SnapStiffness = resourceManagerData.SnapStiffness,
                     Velocity = new float3(0f, 0f, 0f ),
@@ -98,18 +100,30 @@ public class ResourceManagerSystem : JobComponentSystem
     public struct ResourceMovementJob : IJobForEachWithEntity<Resource, Translation>
     {
         public float DeltaTime;
-        public EntityCommandBuffer.Concurrent CommandBuffer;
-        
 
         public void Execute(Entity entity, int index, ref Resource resource, ref Translation translation)
         {
             translation.Value = Vector3.Lerp(translation.Value, resource.GridPosition, resource.SnapStiffness * DeltaTime);
-            
+
             resource.Velocity.y += resource.Gravity * DeltaTime;
             translation.Value += resource.Velocity * DeltaTime;
+        }
+    }
+    
+    //[BurstCompile]
+    public struct ResourceStackJob : IJobForEachWithEntity<Resource, Translation>
+    {
+        public EntityCommandBuffer.Concurrent CommandBuffer;
+        [ReadOnly] public NativeArray<int> StackCounts;
 
-            if (translation.Value.y < -10) //TODO: Remove magic number
+        public void Execute(Entity entity, int index, ref Resource resource, ref Translation translation)
+        {
+            var stackHeight = -10 + (StackCounts[resource.GridIndex] * resource.Size) + (resource.Size * 0.5f); //TODO: Remove magic number
+
+            if (translation.Value.y < stackHeight) 
             {
+                translation.Value.y = stackHeight;
+
                 CommandBuffer.AddComponent(index, entity, new StackedResource());
             }
         }
@@ -118,7 +132,7 @@ public class ResourceManagerSystem : JobComponentSystem
     EntityCommandBufferSystem EndInitCommandBufferSystem;
     EntityCommandBufferSystem EndSimCommandBufferSystem;
 
-    EntityQuery UnstackedResources;
+    EntityQuery FallingResources;
     EntityQuery StackedResources;
     EntityQuery SpawnResources;
 
@@ -127,7 +141,7 @@ public class ResourceManagerSystem : JobComponentSystem
         EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
         EndSimCommandBufferSystem = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
         
-        UnstackedResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>());
+        FallingResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>());
         StackedResources = GetEntityQuery(ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<Resource>(), ComponentType.ReadOnly<StackedResource>());
         SpawnResources = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>(), ComponentType.ReadOnly<SpawnResourceData>());
     }
@@ -137,20 +151,29 @@ public class ResourceManagerSystem : JobComponentSystem
         var stackedResources = StackedResources.ToComponentDataArray<Resource>(Allocator.TempJob);
         var stackCounts = new NativeArray<int>(10000, Allocator.TempJob, NativeArrayOptions.ClearMemory); //TODO: calculate number from resourcemanager data
         
-        var jobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(SpawnResources, inputDependencies);
-        EndInitCommandBufferSystem.AddJobHandleForProducer(jobHandle);
+        var spawnJobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(SpawnResources, inputDependencies);
+        EndInitCommandBufferSystem.AddJobHandleForProducer(spawnJobHandle);
         
         var countJobHandle = new CountStackedResourcesJob{ StackCounts = stackCounts, StackedResources = stackedResources }.Schedule();
-        
-        inputDependencies = JobHandle.CombineDependencies(countJobHandle, jobHandle, inputDependencies);
-        
-        inputDependencies = JobHandle.CombineDependencies( new ResourceUpdateGridPosJob().Schedule(UnstackedResources, inputDependencies), inputDependencies); //TODO: We shouldn't need to add this to the dependencies of the count job
-        
 
-        inputDependencies = JobHandle.CombineDependencies(jobHandle, countJobHandle, inputDependencies);
+        inputDependencies = JobHandle.CombineDependencies(spawnJobHandle, inputDependencies);
+        inputDependencies = JobHandle.CombineDependencies( new ResourceUpdateGridPosJob().Schedule(FallingResources, inputDependencies), inputDependencies);
+        
+        var moveJobHandle = new ResourceMovementJob
+        {
+            DeltaTime = Time.DeltaTime,
+        }.Schedule(FallingResources, inputDependencies);
 
-        inputDependencies = JobHandle.CombineDependencies(jobHandle, new ResourceMovementJob{ CommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent(), DeltaTime = Time.DeltaTime }.Schedule(UnstackedResources, inputDependencies));
-        EndSimCommandBufferSystem.AddJobHandleForProducer(inputDependencies);
+        inputDependencies = JobHandle.CombineDependencies(moveJobHandle, countJobHandle, inputDependencies);
+        
+        var stackJobHandle = new ResourceStackJob
+        {
+            CommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent(),
+            StackCounts = stackCounts
+        }.Schedule(FallingResources, inputDependencies);
+        
+        EndSimCommandBufferSystem.AddJobHandleForProducer(stackJobHandle);
+        inputDependencies = JobHandle.CombineDependencies(stackJobHandle, inputDependencies);
         
         return JobHandle.CombineDependencies(stackCounts.Dispose(inputDependencies), stackedResources.Dispose(inputDependencies));
     }
