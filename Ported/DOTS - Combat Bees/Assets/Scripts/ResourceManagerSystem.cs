@@ -22,7 +22,7 @@ public class ResourceManagerSystem : JobComponentSystem
 
     public struct StackedResource : IComponentData
     {
-        
+        public int StackIndex;
     }
 
     //[BurstCompile]
@@ -120,7 +120,8 @@ public class ResourceManagerSystem : JobComponentSystem
                 var resource = ResourceData[entity];
                 var translation = TranslationData[entity];
 
-                var stackHeight = ManagerData.FloorHeight + (StackCounts[resource.GridIndex] * ManagerData.ResourceSize) + (ManagerData.ResourceSize * 0.5f);
+                var stackCount = StackCounts[resource.GridIndex];
+                var stackHeight = ManagerData.FloorHeight + (stackCount * ManagerData.ResourceSize) + (ManagerData.ResourceSize * 0.5f);
 
                 if (translation.Value.y < stackHeight)
                 {
@@ -128,7 +129,7 @@ public class ResourceManagerSystem : JobComponentSystem
                     translation.Value.y = stackHeight;
 
                     CommandBuffer.SetComponent(entity.Index, entity, translation);
-                    CommandBuffer.AddComponent(entity.Index, entity, new StackedResource());
+                    CommandBuffer.AddComponent(entity.Index, entity, new StackedResource { StackIndex = stackCount});
                 }   
             }
         }
@@ -160,7 +161,7 @@ public class ResourceManagerSystem : JobComponentSystem
         
         var stackedResources = StackedResources.ToComponentDataArray<Resource>(Allocator.TempJob);
         var fallingResources = FallingResources.ToEntityArray(Allocator.TempJob);
-        var stackCounts = new NativeArray<int>(managerData.GridCounts.x * managerData.GridCounts.y, Allocator.TempJob, NativeArrayOptions.ClearMemory); //TODO: calculate number from resourcemanager data
+        var stackCounts = new NativeArray<int>(managerData.GridCounts.x * managerData.GridCounts.y, Allocator.TempJob, NativeArrayOptions.ClearMemory);
         
         var spawnJobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(SpawnResources, inputDependencies);
         EndInitCommandBufferSystem.AddJobHandleForProducer(spawnJobHandle);
