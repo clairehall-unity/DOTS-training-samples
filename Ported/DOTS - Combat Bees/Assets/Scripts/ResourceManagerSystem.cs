@@ -120,7 +120,7 @@ public class ResourceManagerSystem : JobComponentSystem
                 var resource = ResourceData[entity];
                 var translation = TranslationData[entity];
 
-                var stackHeight = -10 + (StackCounts[resource.GridIndex] * ManagerData.ResourceSize) + (ManagerData.ResourceSize * 0.5f); //TODO: Remove magic number
+                var stackHeight = ManagerData.FloorHeight + (StackCounts[resource.GridIndex] * ManagerData.ResourceSize) + (ManagerData.ResourceSize * 0.5f);
 
                 if (translation.Value.y < stackHeight)
                 {
@@ -160,7 +160,7 @@ public class ResourceManagerSystem : JobComponentSystem
         
         var stackedResources = StackedResources.ToComponentDataArray<Resource>(Allocator.TempJob);
         var fallingResources = FallingResources.ToEntityArray(Allocator.TempJob);
-        var stackCounts = new NativeArray<int>(10000, Allocator.TempJob, NativeArrayOptions.ClearMemory); //TODO: calculate number from resourcemanager data
+        var stackCounts = new NativeArray<int>(managerData.GridCounts.x * managerData.GridCounts.y, Allocator.TempJob, NativeArrayOptions.ClearMemory); //TODO: calculate number from resourcemanager data
         
         var spawnJobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(SpawnResources, inputDependencies);
         EndInitCommandBufferSystem.AddJobHandleForProducer(spawnJobHandle);

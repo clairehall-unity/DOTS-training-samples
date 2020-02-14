@@ -6,6 +6,7 @@ using UnityEngine;
 
 public struct ResourceManagerData : IComponentData
 {
+    public float FloorHeight;
     public float ResourceSize;
     public float ResourceGravity;
     public float SnapStiffness;
@@ -50,10 +51,11 @@ public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEnti
 
         var gridCounts = Vector2Int.RoundToInt(new Vector2(fieldTransform.x, fieldTransform.z) / this.ResourceSize);
         var gridSize = new Vector2(fieldTransform.x / gridCounts.x, fieldTransform.z / gridCounts.y);
-        var minGridPos = new Vector2((gridCounts.x-1f)*-.5f*gridSize.x,(gridCounts.y-1f)*-.5f*gridSize.y);
+        var minGridPos = new Vector2((gridCounts.x - 1f) * -(0.5f * gridSize.x),(gridCounts.y-1f) * -(0.5f * gridSize.y));
         
         var resourceManagerData = new ResourceManagerData
         {
+            FloorHeight = -(0.5f * fieldTransform.y),
             ResourceSize = this.ResourceSize,
             ResourceGravity = this.ResourceGravity,
             SnapStiffness = this.SnapStiffness,
