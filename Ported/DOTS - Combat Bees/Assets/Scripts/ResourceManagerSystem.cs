@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Resources;
+using Unity.Burst;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -50,7 +51,7 @@ public class ResourceManagerSystem : JobComponentSystem
         }
     }
     
-    //[BurstCompile]
+    [BurstCompile]
     public struct ResourceUpdateGridPosJob : IJobForEach<Resource, Translation>
     {
         [ReadOnly] public ResourceManagerData ManagerData;
@@ -66,13 +67,15 @@ public class ResourceManagerSystem : JobComponentSystem
         }
     }
     
-    //[BurstCompile]
+    [BurstCompile]
     public struct CountStackedResourcesJob : IJob
     {
         [ReadOnly] public NativeArray<Resource> StackedResources;
         public NativeArray<int> StackCounts;
         public void Execute()
         {
+            //TODO: Look into chunked or parallel iteration
+            
             for (int i = 0; i < StackedResources.Length; i++)
             {
                 StackCounts[StackedResources[i].GridIndex]++;   
@@ -80,7 +83,7 @@ public class ResourceManagerSystem : JobComponentSystem
         }
     }
     
-    //[BurstCompile]
+    [BurstCompile]
     public struct ResourceMovementJob : IJobForEachWithEntity<Resource, Translation>
     {
         [ReadOnly] public ResourceManagerData ManagerData;
@@ -95,22 +98,38 @@ public class ResourceManagerSystem : JobComponentSystem
         }
     }
     
-    //[BurstCompile]
-    public struct ResourceStackJob : IJobForEachWithEntity<Resource, Translation>
+    [BurstCompile]
+    public struct ResourceStackJob : IJob
     {
         public EntityCommandBuffer.Concurrent CommandBuffer;
         [ReadOnly] public ResourceManagerData ManagerData;
-        [ReadOnly] public NativeArray<int> StackCounts;
+        
+        public NativeArray<int> StackCounts;
+        [ReadOnly] public NativeArray<Entity> ResourceEntities;
+        
+        [ReadOnly] public ComponentDataFromEntity<Resource> ResourceData;
+        public ComponentDataFromEntity<Translation> TranslationData;
 
-        public void Execute(Entity entity, int index, ref Resource resource, ref Translation translation)
+        public void Execute()
         {
-            var stackHeight = -10 + (StackCounts[resource.GridIndex] * ManagerData.ResourceSize) + (ManagerData.ResourceSize * 0.5f); //TODO: Remove magic number
-
-            if (translation.Value.y < stackHeight) 
+            //TODO: Look into chunked or parallel iteration, also ensure we iterate over entities in y position order bottom to top (to ensure correct stacking order)
+            
+            for (int i = 0; i < ResourceEntities.Length; i++)
             {
-                translation.Value.y = stackHeight;
+                var entity = ResourceEntities[i];
+                var resource = ResourceData[entity];
+                var translation = TranslationData[entity];
 
-                CommandBuffer.AddComponent(index, entity, new StackedResource());
+                var stackHeight = -10 + (StackCounts[resource.GridIndex] * ManagerData.ResourceSize) + (ManagerData.ResourceSize * 0.5f); //TODO: Remove magic number
+
+                if (translation.Value.y < stackHeight)
+                {
+                    StackCounts[resource.GridIndex]++;
+                    translation.Value.y = stackHeight;
+
+                    CommandBuffer.SetComponent(entity.Index, entity, translation);
+                    CommandBuffer.AddComponent(entity.Index, entity, new StackedResource());
+                }   
             }
         }
     }
@@ -140,6 +159,7 @@ public class ResourceManagerSystem : JobComponentSystem
         var managerData = ResourceManager.GetSingleton<ResourceManagerData>();
         
         var stackedResources = StackedResources.ToComponentDataArray<Resource>(Allocator.TempJob);
+        var fallingResources = FallingResources.ToEntityArray(Allocator.TempJob);
         var stackCounts = new NativeArray<int>(10000, Allocator.TempJob, NativeArrayOptions.ClearMemory); //TODO: calculate number from resourcemanager data
         
         var spawnJobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(SpawnResources, inputDependencies);
@@ -162,13 +182,16 @@ public class ResourceManagerSystem : JobComponentSystem
         {
             ManagerData = managerData,
             CommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent(),
-            StackCounts = stackCounts
-        }.Schedule(FallingResources, inputDependencies);
+            StackCounts = stackCounts,
+            ResourceEntities = fallingResources,
+            ResourceData = GetComponentDataFromEntity<Resource>(true),
+            TranslationData = GetComponentDataFromEntity<Translation>()
+        }.Schedule(inputDependencies);
 
         EndSimCommandBufferSystem.AddJobHandleForProducer(stackJobHandle);
         inputDependencies = JobHandle.CombineDependencies(stackJobHandle, inputDependencies);
         
-        return JobHandle.CombineDependencies(stackCounts.Dispose(inputDependencies), stackedResources.Dispose(inputDependencies));
+        return JobHandle.CombineDependencies(stackCounts.Dispose(inputDependencies), stackedResources.Dispose(inputDependencies), fallingResources.Dispose(inputDependencies));
     }
     
     static void GetGridIndex(Vector2 minGridPos, Vector2 gridSize, Vector2Int gridCounts, Vector3 pos, out int gridX, out int gridY) {
@@ -178,4 +201,5 @@ public class ResourceManagerSystem : JobComponentSystem
         gridX = Mathf.Clamp(gridX,0,gridCounts.x - 1);
         gridY = Mathf.Clamp(gridY,0,gridCounts.y - 1);
     }
+    
 }
