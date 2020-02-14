@@ -17,14 +17,6 @@ public class ResourceManagerSystem : JobComponentSystem
         public float3 Velocity;
         public float3 GridPosition;
         public int GridIndex;
-        
-        //TODO: This should be shared data
-        public float Size;
-        public float Gravity;
-        public float SnapStiffness;
-        public Vector2 MinGridPos;
-        public Vector2 GridSize;
-        public Vector2Int GridCounts;
     }
 
     public struct StackedResource : IComponentData
@@ -51,16 +43,7 @@ public class ResourceManagerSystem : JobComponentSystem
                 //TODO: Look into archetypes instead of adding several components in turn
                 CommandBuffer.SetComponent(index, resourceEntity, new Translation { Value = position });
                 CommandBuffer.AddComponent(index, resourceEntity, new NonUniformScale{ Value = new float3(resourceManagerData.ResourceSize,  resourceManagerData.ResourceSize * 0.5f, resourceManagerData.ResourceSize) });
-                CommandBuffer.AddComponent(index, resourceEntity, new Resource
-                {
-                    Size = resourceManagerData.ResourceSize,
-                    Gravity = resourceManagerData.ResourceGravity,
-                    SnapStiffness = resourceManagerData.SnapStiffness,
-                    Velocity = new float3(0f, 0f, 0f ),
-                    MinGridPos = resourceManagerData.MinGridPos,
-                    GridSize = resourceManagerData.GridSize,
-                    GridCounts = resourceManagerData.GridCounts
-                });
+                CommandBuffer.AddComponent(index, resourceEntity, new Resource { Velocity = new float3(0f, 0f, 0f ) });
             }
             
             CommandBuffer.RemoveComponent<SpawnResourceData>(index, entity);
@@ -70,15 +53,16 @@ public class ResourceManagerSystem : JobComponentSystem
     //[BurstCompile]
     public struct ResourceUpdateGridPosJob : IJobForEach<Resource, Translation>
     {
+        [ReadOnly] public ResourceManagerData ManagerData;
         public void Execute(ref Resource resource, [ReadOnly] ref Translation translation)
         {
             var position = translation.Value;
             
             int x, y;
-            GetGridIndex(resource.MinGridPos, resource.GridSize, resource.GridCounts, position, out x, out y);
+            GetGridIndex(ManagerData.MinGridPos, ManagerData.GridSize, ManagerData.GridCounts, position, out x, out y);
 
-            resource.GridPosition = new float3(resource.MinGridPos.x + x * resource.GridSize.x, position.y, resource.MinGridPos.y + y * resource.GridSize.y);
-            resource.GridIndex = (y * resource.GridCounts.x) + x;
+            resource.GridPosition = new float3(ManagerData.MinGridPos.x + x * ManagerData.GridSize.x, position.y, ManagerData.MinGridPos.y + y * ManagerData.GridSize.y);
+            resource.GridIndex = (y * ManagerData.GridCounts.x) + x;
         }
     }
     
@@ -99,13 +83,14 @@ public class ResourceManagerSystem : JobComponentSystem
     //[BurstCompile]
     public struct ResourceMovementJob : IJobForEachWithEntity<Resource, Translation>
     {
+        [ReadOnly] public ResourceManagerData ManagerData;
         public float DeltaTime;
 
         public void Execute(Entity entity, int index, ref Resource resource, ref Translation translation)
         {
-            translation.Value = Vector3.Lerp(translation.Value, resource.GridPosition, resource.SnapStiffness * DeltaTime);
+            translation.Value = Vector3.Lerp(translation.Value, resource.GridPosition, ManagerData.SnapStiffness * DeltaTime);
 
-            resource.Velocity.y += resource.Gravity * DeltaTime;
+            resource.Velocity.y += ManagerData.ResourceGravity * DeltaTime;
             translation.Value += resource.Velocity * DeltaTime;
         }
     }
@@ -114,11 +99,12 @@ public class ResourceManagerSystem : JobComponentSystem
     public struct ResourceStackJob : IJobForEachWithEntity<Resource, Translation>
     {
         public EntityCommandBuffer.Concurrent CommandBuffer;
+        [ReadOnly] public ResourceManagerData ManagerData;
         [ReadOnly] public NativeArray<int> StackCounts;
 
         public void Execute(Entity entity, int index, ref Resource resource, ref Translation translation)
         {
-            var stackHeight = -10 + (StackCounts[resource.GridIndex] * resource.Size) + (resource.Size * 0.5f); //TODO: Remove magic number
+            var stackHeight = -10 + (StackCounts[resource.GridIndex] * ManagerData.ResourceSize) + (ManagerData.ResourceSize * 0.5f); //TODO: Remove magic number
 
             if (translation.Value.y < stackHeight) 
             {
@@ -135,6 +121,7 @@ public class ResourceManagerSystem : JobComponentSystem
     EntityQuery FallingResources;
     EntityQuery StackedResources;
     EntityQuery SpawnResources;
+    EntityQuery ResourceManager;
 
     protected override void OnCreate()
     {
@@ -144,10 +131,14 @@ public class ResourceManagerSystem : JobComponentSystem
         FallingResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>());
         StackedResources = GetEntityQuery(ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<Resource>(), ComponentType.ReadOnly<StackedResource>());
         SpawnResources = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>(), ComponentType.ReadOnly<SpawnResourceData>());
+
+        ResourceManager = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>());
     }
 
     protected override JobHandle OnUpdate(JobHandle inputDependencies)
     {
+        var managerData = ResourceManager.GetSingleton<ResourceManagerData>();
+        
         var stackedResources = StackedResources.ToComponentDataArray<Resource>(Allocator.TempJob);
         var stackCounts = new NativeArray<int>(10000, Allocator.TempJob, NativeArrayOptions.ClearMemory); //TODO: calculate number from resourcemanager data
         
@@ -157,10 +148,11 @@ public class ResourceManagerSystem : JobComponentSystem
         var countJobHandle = new CountStackedResourcesJob{ StackCounts = stackCounts, StackedResources = stackedResources }.Schedule();
 
         inputDependencies = JobHandle.CombineDependencies(spawnJobHandle, inputDependencies);
-        inputDependencies = JobHandle.CombineDependencies( new ResourceUpdateGridPosJob().Schedule(FallingResources, inputDependencies), inputDependencies);
+        inputDependencies = JobHandle.CombineDependencies( new ResourceUpdateGridPosJob{ ManagerData = managerData }.Schedule(FallingResources, inputDependencies), inputDependencies);
         
         var moveJobHandle = new ResourceMovementJob
         {
+            ManagerData = managerData,
             DeltaTime = Time.DeltaTime,
         }.Schedule(FallingResources, inputDependencies);
 
@@ -168,10 +160,11 @@ public class ResourceManagerSystem : JobComponentSystem
         
         var stackJobHandle = new ResourceStackJob
         {
+            ManagerData = managerData,
             CommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent(),
             StackCounts = stackCounts
         }.Schedule(FallingResources, inputDependencies);
-        
+
         EndSimCommandBufferSystem.AddJobHandleForProducer(stackJobHandle);
         inputDependencies = JobHandle.CombineDependencies(stackJobHandle, inputDependencies);
         
