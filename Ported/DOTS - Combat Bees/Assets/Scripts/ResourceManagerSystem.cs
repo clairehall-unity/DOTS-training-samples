@@ -192,6 +192,8 @@ public class ResourceManagerSystem : JobComponentSystem
         EndSimCommandBufferSystem.AddJobHandleForProducer(stackJobHandle);
         inputDependencies = JobHandle.CombineDependencies(stackJobHandle, inputDependencies);
         
+        //TODO: DrawMeshInstanced instead of normal mesh rendering flow?
+        
         return JobHandle.CombineDependencies(stackCounts.Dispose(inputDependencies), stackedResources.Dispose(inputDependencies), fallingResources.Dispose(inputDependencies));
     }
     
