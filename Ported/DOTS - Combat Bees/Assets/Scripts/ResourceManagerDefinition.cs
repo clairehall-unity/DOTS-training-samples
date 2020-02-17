@@ -1,7 +1,9 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Rendering;
 using UnityEngine;
 
 public struct ResourceManagerData : IComponentData
@@ -17,8 +19,6 @@ public struct ResourceManagerData : IComponentData
     public Vector2 MinGridPos;
     public Vector2 GridSize;
     public Vector2Int GridCounts;
-
-    public Entity ResourcePrefabEntity;
 }
 
 public struct SpawnResourceData : IComponentData
@@ -26,7 +26,31 @@ public struct SpawnResourceData : IComponentData
     public int SpawnCount;
 }
 
-public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity, IDeclareReferencedPrefabs
+
+public struct ResourceMesh : ISharedComponentData, IEquatable<ResourceMesh>
+{
+    public Mesh Mesh;
+    public Material Material;
+    
+    public bool Equals(ResourceMesh other)
+    {
+        return
+            Mesh == other.Mesh &&
+            Material == other.Material;
+    }
+    
+    public override int GetHashCode()
+    {
+        int hash = 0;
+        
+        if (!ReferenceEquals(Mesh, null)) hash ^= Mesh.GetHashCode();
+        if (!ReferenceEquals(Material, null)) hash ^= Material.GetHashCode();
+        
+        return hash;
+    }
+}
+
+public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
 {
     public float ResourceSize;
     public float ResourceGravity;
@@ -35,18 +59,14 @@ public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEnti
     public float SpawnRate;
     public int BeesPerResource;
     public int StartResourceCount;
-    
-    public GameObject ResourcePrefab;
-    public GameObject FieldObject;
 
-    public void DeclareReferencedPrefabs(List<GameObject> referencedPrefabs)
-    {
-        referencedPrefabs.Add(ResourcePrefab);
-    }
+    public Mesh ResourceMesh;
+    public Material ResourceMaterial;
+    
+    public GameObject FieldObject;
 
     public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
     {
-        var resourcePrefab = conversionSystem.GetPrimaryEntity(ResourcePrefab);
         var fieldTransform = FieldObject.transform.localScale;
 
         var gridCounts = Vector2Int.RoundToInt(new Vector2(fieldTransform.x, fieldTransform.z) / this.ResourceSize);
@@ -62,10 +82,15 @@ public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEnti
             CarryStiffness = this.CarryStiffness,
             SpawnRate = this.SpawnRate,
             BeesPerResource = this.BeesPerResource,
-            ResourcePrefabEntity = resourcePrefab,
             GridCounts = gridCounts,
             GridSize = gridSize,
-            MinGridPos = minGridPos
+            MinGridPos = minGridPos,
+        };
+
+        var resourceMeshData = new ResourceMesh
+        {
+            Mesh = this.ResourceMesh,
+            Material = this.ResourceMaterial
         };
 
         var spawnResourceData = new SpawnResourceData
@@ -75,5 +100,6 @@ public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEnti
 
         dstManager.AddComponentData(entity, resourceManagerData);
         dstManager.AddComponentData(entity, spawnResourceData);
+        dstManager.AddSharedComponentData(entity, resourceMeshData);
     }
 }

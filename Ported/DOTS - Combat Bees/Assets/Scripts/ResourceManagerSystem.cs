@@ -36,13 +36,13 @@ public class ResourceManagerSystem : JobComponentSystem
             
             for (int x = 0; x < spawnResourceData.SpawnCount; ++x)
             {
-                var resourceEntity = CommandBuffer.Instantiate(index, resourceManagerData.ResourcePrefabEntity);
-                
+                var resourceEntity = CommandBuffer.CreateEntity(index);
+
                 var position = new float3((resourceManagerData.MinGridPos.x + (random.NextFloat() * resourceManagerData.GridSize.x * resourceManagerData.GridCounts.x)) * 0.25f,
                             random.NextFloat() * 10f,resourceManagerData.MinGridPos.y + (random.NextFloat() * resourceManagerData.GridSize.y * resourceManagerData.GridCounts.y));
                 
                 //TODO: Look into archetypes instead of adding several components in turn
-                CommandBuffer.SetComponent(index, resourceEntity, new Translation { Value = position });
+                CommandBuffer.AddComponent(index, resourceEntity, new Translation { Value = position });
                 CommandBuffer.AddComponent(index, resourceEntity, new NonUniformScale{ Value = new float3(resourceManagerData.ResourceSize,  resourceManagerData.ResourceSize * 0.5f, resourceManagerData.ResourceSize) });
                 CommandBuffer.AddComponent(index, resourceEntity, new Resource { Velocity = new float3(0f, 0f, 0f ) });
             }
