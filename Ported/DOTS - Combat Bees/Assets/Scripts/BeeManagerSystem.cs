@@ -17,10 +17,12 @@ public class BeeManagerSystem : JobComponentSystem
 {
     public struct Bee : IComponentData
     {
-        public float3 Velocity;
-        public float3 SmoothDirection;
-        public float3 SmoothPosition;
+        public Vector3 Velocity;
+        public Vector3 SmoothDirection;
+        public Vector3 SmoothPosition;
+        public float Size;
         public bool IsAttacking;
+        public bool IsDead;
     }
 
     public struct BeeTeam : ISharedComponentData
@@ -63,7 +65,9 @@ public class BeeManagerSystem : JobComponentSystem
                         Velocity = velocity,
                         SmoothPosition = position + (Vector3.right * 0.1f),
                         SmoothDirection = Vector3.zero,
-                        IsAttacking = false
+                        Size = size,
+                        IsAttacking = false,
+                        IsDead = false
                     });
                     commandBuffer.AddComponent(beeEntity, new Rotation{ Value = quaternion.identity });
                     commandBuffer.AddSharedComponent(beeEntity, new BeeTeam { TeamIndex =  teamIndex });
@@ -81,16 +85,27 @@ public class BeeManagerSystem : JobComponentSystem
         var deltaTime = Time.DeltaTime;
         var random = new Unity.Mathematics.Random((uint) System.DateTime.Now.Millisecond + 1);
 
-        var moveJobHandle = Entities.ForEach((ref Bee bee, ref Translation translation, ref Rotation rotation) =>
+        var moveJobHandle = Entities.ForEach((ref Bee bee, ref Translation translation, ref Rotation rotation, ref NonUniformScale scale) =>
         {
-            bee.Velocity += random.NextFloat3Direction() * (managerData.BeeFlightJitter * deltaTime);
+            bee.Velocity += (Vector3)random.NextFloat3Direction() * (managerData.BeeFlightJitter * deltaTime);
             bee.Velocity *= (1f - managerData.BeeFlightDamping);
 
             bee.Velocity.y += managerData.BeeGravity * deltaTime;
 
-            var position = translation.Value + (bee.Velocity * deltaTime);
-            
-            
+            var position = (Vector3)translation.Value + (bee.Velocity * deltaTime);
+
+            if (!bee.IsDead)
+            {
+                float stretch = Mathf.Max(1f, bee.Velocity.magnitude * managerData.BeeSpeedStretch);
+
+                scale.Value.z = bee.Size * stretch;
+                scale.Value.x = scale.Value.y = bee.Size / (((stretch - 1f) / 5f) + 1f);
+            }
+            else
+            {
+                scale.Value.x = scale.Value.y = scale.Value.z = bee.Size;
+            }
+
             if (System.Math.Abs(position.x) > managerData.FieldSize.x * .5f) {
                 position.x = (managerData.FieldSize.x * .5f) * Mathf.Sign(position.x);
                 bee.Velocity.x *= -.5f;
@@ -119,7 +134,7 @@ public class BeeManagerSystem : JobComponentSystem
 
             var oldPos = bee.SmoothPosition;
             bee.SmoothPosition = bee.IsAttacking
-                ? (float3) Vector3.Lerp(bee.SmoothPosition, position, deltaTime * managerData.BeeRotationStiffness)
+                ? Vector3.Lerp(bee.SmoothPosition, position, deltaTime * managerData.BeeRotationStiffness)
                 : position;
             
             bee.SmoothDirection = bee.SmoothPosition - oldPos;

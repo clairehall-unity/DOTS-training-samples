@@ -15,6 +15,7 @@ public struct BeeManagerData : IComponentData
     public float MaxBeeSpawnSpeed;
     public float BeeFlightJitter;
     public float BeeFlightDamping;
+    public float BeeSpeedStretch;
     public float BeeRotationStiffness;
 
     public Color TeamAColour;
@@ -36,7 +37,7 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
     public float BeeFlightJitter;
     [Range(0,1)]
     public float BeeFlightDamping;
-
+    public float BeeSpeedStretch;
     public float BeeRotationStiffness;
     public Color[] TeamColours;
     
@@ -63,6 +64,7 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
             BeeFlightDamping = this.BeeFlightDamping,
             BeeFlightJitter = this.BeeFlightJitter,
             BeeRotationStiffness = this.BeeRotationStiffness,
+            BeeSpeedStretch = this.BeeSpeedStretch,
             BeeGravity = this.BeeGravity,
             TeamAColour = TeamColours[0],
             TeamBColour = TeamColours[1]
