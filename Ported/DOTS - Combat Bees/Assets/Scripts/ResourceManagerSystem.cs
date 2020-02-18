@@ -10,6 +10,7 @@ using Unity.Transforms;
 using Unity.Collections;
 using UnityEngine;
 using ReadOnly = Unity.Collections.ReadOnlyAttribute;
+using Random = UnityEngine.Random;
 
 public class ResourceManagerSystem : JobComponentSystem
 {
@@ -136,18 +137,16 @@ public class ResourceManagerSystem : JobComponentSystem
 
         Entities.ForEach((Entity entity, RenderMeshInfo meshInfo, ref SpawnResourceData spawnResourceData) =>
         {
-            var random = new Unity.Mathematics.Random((uint) System.DateTime.Now.Millisecond + 1);
-
             for (int x = 0; x < spawnResourceData.SpawnCount; ++x)
             {
                 var resourceEntity = commandBuffer.CreateEntity();
 
                 var position = new float3(
                     (managerData.MinGridPos.x +
-                     (random.NextFloat() * managerData.GridSize.x * managerData.GridCounts.x)) * 0.25f,
-                    random.NextFloat() * 10f,
+                     (Random.value * managerData.GridSize.x * managerData.GridCounts.x)) * 0.25f,
+                    Random.value * 10f,
                     managerData.MinGridPos.y +
-                    (random.NextFloat() * managerData.GridSize.y * managerData.GridCounts.y));
+                    (Random.value * managerData.GridSize.y * managerData.GridCounts.y));
 
                 //TODO: Look into archetypes instead of adding several components in turn
                 commandBuffer.AddComponent(resourceEntity, new Translation {Value = position});

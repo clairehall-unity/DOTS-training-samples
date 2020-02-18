@@ -68,6 +68,7 @@ public class RenderManagerSystem : ComponentSystem
     {
         var translations = GetComponentDataFromEntity<Translation>(true);
         var scales = GetComponentDataFromEntity<NonUniformScale>(true);
+        var rotations = GetComponentDataFromEntity<Rotation>(true);
         
         var meshes = new List<RenderMeshInfo>();
         EntityManager.GetAllUniqueSharedComponentData(meshes);
@@ -122,11 +123,11 @@ public class RenderManagerSystem : ComponentSystem
                 {
                     var entity = entities[entityIndex];
                     var translation = translations[entity].Value;
+                    var rotation = rotations[entity].Value;
                     var scale = scales[entity].Value;
             
-                    matrices.Add(new Matrix4x4(new Vector4(scale.x, 0, 0, 0), new Vector4(0, scale.y, 0, 0), new Vector4(0, 0, scale.z, 0),
-                        new Vector4(translation.x, translation.y, translation.z, 1)));
-            
+                    matrices.Add(Matrix4x4.TRS(translation, rotation, scale));
+
                     colours.Add(meshInfo.Colour);
                 }
 

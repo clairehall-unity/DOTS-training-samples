@@ -11,6 +11,12 @@ public struct BeeManagerData : IComponentData
     public float MinBeeSize;
     public float MaxBeeSize;
 
+    public float BeeGravity;
+    public float MaxBeeSpawnSpeed;
+    public float BeeFlightJitter;
+    public float BeeFlightDamping;
+    public float BeeRotationStiffness;
+
     public Color TeamAColour;
     public Color TeamBColour;
 }
@@ -25,6 +31,13 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
     public int StartBeeCount;
     public float MinBeeSize;
     public float MaxBeeSize;
+    public float MaxBeeSpawnSpeed;
+    public float BeeGravity;
+    public float BeeFlightJitter;
+    [Range(0,1)]
+    public float BeeFlightDamping;
+
+    public float BeeRotationStiffness;
     public Color[] TeamColours;
     
     public Mesh BeeMesh;
@@ -46,6 +59,11 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
             FieldSize = FieldObject.transform.localScale,
             MinBeeSize = this.MinBeeSize,
             MaxBeeSize = this.MaxBeeSize,
+            MaxBeeSpawnSpeed = this.MaxBeeSpawnSpeed,
+            BeeFlightDamping = this.BeeFlightDamping,
+            BeeFlightJitter = this.BeeFlightJitter,
+            BeeRotationStiffness = this.BeeRotationStiffness,
+            BeeGravity = this.BeeGravity,
             TeamAColour = TeamColours[0],
             TeamBColour = TeamColours[1]
         };
