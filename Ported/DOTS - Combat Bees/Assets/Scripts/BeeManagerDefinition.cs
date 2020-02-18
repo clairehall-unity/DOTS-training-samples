@@ -10,8 +10,9 @@ public struct BeeManagerData : IComponentData
 
     public float MinBeeSize;
     public float MaxBeeSize;
-    
-    public Entity BeePrefabEntity;
+
+    public Color TeamAColour;
+    public Color TeamBColour;
 }
 
 public struct SpawnBeeData : IComponentData
@@ -19,29 +20,34 @@ public struct SpawnBeeData : IComponentData
     public int SpawnCount;
 }
 
-public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity, IDeclareReferencedPrefabs
+public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
 {
     public int StartBeeCount;
     public float MinBeeSize;
     public float MaxBeeSize;
-    public GameObject BeePrefab;
+    public Color[] TeamColours;
+    
+    public Mesh BeeMesh;
+    public Material BeeMaterial;
+    
     public GameObject FieldObject;
-
-    public void DeclareReferencedPrefabs(List<GameObject> referencedPrefabs)
-    {
-        referencedPrefabs.Add(BeePrefab);
-    }
-
+    
     public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
     {
-        var beePrefab = conversionSystem.GetPrimaryEntity(BeePrefab);
+        var teamColours = new Vector4[TeamColours.Length];
 
+        for (int i = 0; i < teamColours.Length; i++)
+        {
+            teamColours[i] = new Vector4(TeamColours[i].r, TeamColours[i].g, TeamColours[i].b, TeamColours[i].a);
+        }
+        
         var beeManagerData = new BeeManagerData
         {
             FieldSize = FieldObject.transform.localScale,
             MinBeeSize = this.MinBeeSize,
             MaxBeeSize = this.MaxBeeSize,
-            BeePrefabEntity = beePrefab
+            TeamAColour = TeamColours[0],
+            TeamBColour = TeamColours[1]
         };
 
         var spawnBeeData = new SpawnBeeData
@@ -51,5 +57,6 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity, I
 
         dstManager.AddComponentData(entity, beeManagerData);
         dstManager.AddComponentData(entity, spawnBeeData);
+        dstManager.AddSharedComponentData(entity, new BeeManagerSystem.TeamInfo {Mesh = BeeMesh, Material = BeeMaterial});
     }
 }

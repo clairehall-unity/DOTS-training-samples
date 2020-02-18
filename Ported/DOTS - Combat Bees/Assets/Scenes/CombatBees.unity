@@ -244,8 +244,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   StartBeeCount: 100
+  MinBeeSize: 0.25
+  MaxBeeSize: 0.5
   BeePrefab: {fileID: 5954413799634017108, guid: 5654c5f915847496792e9b682402fb2c,
     type: 3}
+  FieldObject: {fileID: 2040692840}
 --- !u!114 &253092463
 MonoBehaviour:
   m_ObjectHideFlags: 0
