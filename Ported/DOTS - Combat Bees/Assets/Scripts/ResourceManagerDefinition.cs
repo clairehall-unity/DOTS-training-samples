@@ -26,30 +26,6 @@ public struct SpawnResourceData : IComponentData
     public int SpawnCount;
 }
 
-
-public struct ResourceMesh : ISharedComponentData, IEquatable<ResourceMesh>
-{
-    public Mesh Mesh;
-    public Material Material;
-    
-    public bool Equals(ResourceMesh other)
-    {
-        return
-            Mesh == other.Mesh &&
-            Material == other.Material;
-    }
-    
-    public override int GetHashCode()
-    {
-        int hash = 0;
-        
-        if (!ReferenceEquals(Mesh, null)) hash ^= Mesh.GetHashCode();
-        if (!ReferenceEquals(Material, null)) hash ^= Material.GetHashCode();
-        
-        return hash;
-    }
-}
-
 public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
 {
     public float ResourceSize;
@@ -87,7 +63,7 @@ public class ResourceManagerDefinition : MonoBehaviour, IConvertGameObjectToEnti
             MinGridPos = minGridPos,
         };
 
-        var resourceMeshData = new ResourceMesh
+        var resourceMeshData = new RenderMeshInfo()
         {
             Mesh = this.ResourceMesh,
             Material = this.ResourceMaterial

@@ -55,12 +55,12 @@ public struct RenderMeshWithColourInfo : ISharedComponentData, IEquatable<Render
 
 public class RenderManagerSystem : ComponentSystem
 {
-    EntityQuery Resources;
+    EntityQuery Meshes;
     EntityQuery ColourMeshes;
     
     protected override void OnCreate()
     {
-        Resources = GetEntityQuery(ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<NonUniformScale>(), ComponentType.ReadOnly<ResourceManagerSystem.Resource>());
+        Meshes = GetEntityQuery(ComponentType.ReadOnly<RenderMeshInfo>(), ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<NonUniformScale>());
         ColourMeshes = GetEntityQuery(ComponentType.ReadOnly<RenderMeshWithColourInfo>(), ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<NonUniformScale>());
     }
 
@@ -69,46 +69,60 @@ public class RenderManagerSystem : ComponentSystem
         var translations = GetComponentDataFromEntity<Translation>(true);
         var scales = GetComponentDataFromEntity<NonUniformScale>(true);
         
-        var resources = Resources.ToEntityArray(Allocator.TempJob);
-
-        Entities.ForEach((ResourceMesh renderData, ref ResourceManagerData resourceManagerData) =>
-        {
-            List<Matrix4x4> matrices = new List<Matrix4x4>();
-
-            foreach (var resource in resources)
-            {
-                var translation = translations[resource].Value;
-                var scale = scales[resource].Value;
-                
-                matrices.Add(new Matrix4x4(new Vector4(scale.x, 0, 0, 0), new Vector4(0, scale.y, 0, 0), new Vector4(0, 0, scale.z, 0),
-                    new Vector4(translation.x, translation.y, translation.z, 1)));
-            }
-
-            Graphics.DrawMeshInstanced(renderData.Mesh, 0, renderData.Material, matrices);
-        });
-
-        var meshes = new List<RenderMeshWithColourInfo>();
+        var meshes = new List<RenderMeshInfo>();
         EntityManager.GetAllUniqueSharedComponentData(meshes);
-        
+
         for (int i = 0; i < meshes.Count; i++)
         {
             var meshInfo = meshes[i];
         
+            Meshes.SetSharedComponentFilter(meshInfo);
+        
+            var entities = Meshes.ToEntityArray(Allocator.TempJob);
+
+            if (entities.Length > 0)
+            {
+                List<Matrix4x4> matrices = new List<Matrix4x4>();
+
+                for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+                {
+                    var entity = entities[entityIndex];
+                    var translation = translations[entity].Value;
+                    var scale = scales[entity].Value;
+            
+                    matrices.Add(new Matrix4x4(new Vector4(scale.x, 0, 0, 0), new Vector4(0, scale.y, 0, 0), new Vector4(0, 0, scale.z, 0),
+                        new Vector4(translation.x, translation.y, translation.z, 1)));
+                }
+
+                Graphics.DrawMeshInstanced(meshInfo.Mesh, 0, meshInfo.Material, matrices);
+            }
+            
+            entities.Dispose();
+        }
+
+        var colourMeshes = new List<RenderMeshWithColourInfo>();
+        EntityManager.GetAllUniqueSharedComponentData(colourMeshes);
+        
+        for (int i = 0; i < colourMeshes.Count; i++)
+        {
+            var meshInfo = colourMeshes[i];
+        
             ColourMeshes.SetSharedComponentFilter(meshInfo);
         
-            var bees = ColourMeshes.ToEntityArray(Allocator.TempJob);
+            var entities = ColourMeshes.ToEntityArray(Allocator.TempJob);
 
-            if (bees.Length > 0)
+            if (entities.Length > 0)
             {
                 List<Matrix4x4> matrices = new List<Matrix4x4>();
                 List<Vector4> colours = new List<Vector4>();
         
                 var matProps = new MaterialPropertyBlock();
 
-                foreach (var bee in bees)
+                for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
                 {
-                    var translation = translations[bee].Value;
-                    var scale = scales[bee].Value;
+                    var entity = entities[entityIndex];
+                    var translation = translations[entity].Value;
+                    var scale = scales[entity].Value;
             
                     matrices.Add(new Matrix4x4(new Vector4(scale.x, 0, 0, 0), new Vector4(0, scale.y, 0, 0), new Vector4(0, 0, scale.z, 0),
                         new Vector4(translation.x, translation.y, translation.z, 1)));
@@ -121,9 +135,7 @@ public class RenderManagerSystem : ComponentSystem
                 Graphics.DrawMeshInstanced(meshInfo.Mesh, 0, meshInfo.Material, matrices, matProps);
             }
             
-            bees.Dispose();
+            entities.Dispose();
         }
-
-        resources.Dispose();
     }
 }

@@ -24,32 +24,6 @@ public class ResourceManagerSystem : JobComponentSystem
     {
         public int StackIndex;
     }
-
-    //[BurstCompile]
-    public struct SpawnResourcesJob : IJobForEachWithEntity<ResourceManagerData,SpawnResourceData>
-    {
-        public EntityCommandBuffer.Concurrent CommandBuffer;
-        
-        public void Execute(Entity entity, int index, [ReadOnly] ref ResourceManagerData resourceManagerData, [ReadOnly] ref SpawnResourceData spawnResourceData)
-        {
-            var random = new Unity.Mathematics.Random((uint)System.DateTime.Now.Millisecond + 1);
-            
-            for (int x = 0; x < spawnResourceData.SpawnCount; ++x)
-            {
-                var resourceEntity = CommandBuffer.CreateEntity(index);
-
-                var position = new float3((resourceManagerData.MinGridPos.x + (random.NextFloat() * resourceManagerData.GridSize.x * resourceManagerData.GridCounts.x)) * 0.25f,
-                            random.NextFloat() * 10f,resourceManagerData.MinGridPos.y + (random.NextFloat() * resourceManagerData.GridSize.y * resourceManagerData.GridCounts.y));
-                
-                //TODO: Look into archetypes instead of adding several components in turn
-                CommandBuffer.AddComponent(index, resourceEntity, new Translation { Value = position });
-                CommandBuffer.AddComponent(index, resourceEntity, new NonUniformScale{ Value = new float3(resourceManagerData.ResourceSize,  resourceManagerData.ResourceSize * 0.5f, resourceManagerData.ResourceSize) });
-                CommandBuffer.AddComponent(index, resourceEntity, new Resource { Velocity = new float3(0f, 0f, 0f ) });
-            }
-            
-            CommandBuffer.RemoveComponent<SpawnResourceData>(index, entity);
-        }
-    }
     
     [BurstCompile]
     public struct ResourceUpdateGridPosJob : IJobForEach<Resource, Translation>
@@ -158,17 +132,44 @@ public class ResourceManagerSystem : JobComponentSystem
     protected override JobHandle OnUpdate(JobHandle inputDependencies)
     {
         var managerData = ResourceManager.GetSingleton<ResourceManagerData>();
-        
+        var commandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer();
+
+        Entities.ForEach((Entity entity, RenderMeshInfo meshInfo, ref SpawnResourceData spawnResourceData) =>
+        {
+            var random = new Unity.Mathematics.Random((uint) System.DateTime.Now.Millisecond + 1);
+
+            for (int x = 0; x < spawnResourceData.SpawnCount; ++x)
+            {
+                var resourceEntity = commandBuffer.CreateEntity();
+
+                var position = new float3(
+                    (managerData.MinGridPos.x +
+                     (random.NextFloat() * managerData.GridSize.x * managerData.GridCounts.x)) * 0.25f,
+                    random.NextFloat() * 10f,
+                    managerData.MinGridPos.y +
+                    (random.NextFloat() * managerData.GridSize.y * managerData.GridCounts.y));
+
+                //TODO: Look into archetypes instead of adding several components in turn
+                commandBuffer.AddComponent(resourceEntity, new Translation {Value = position});
+                commandBuffer.AddComponent(resourceEntity,
+                    new NonUniformScale
+                    {
+                        Value = new float3(managerData.ResourceSize, managerData.ResourceSize * 0.5f,
+                            managerData.ResourceSize)
+                    });
+                commandBuffer.AddComponent(resourceEntity, new Resource {Velocity = new float3(0f, 0f, 0f)});
+                commandBuffer.AddSharedComponent(resourceEntity, meshInfo);
+            }
+
+            commandBuffer.RemoveComponent<SpawnResourceData>(entity);
+        }).WithoutBurst().Run();
+
         var stackedResources = StackedResources.ToComponentDataArray<Resource>(Allocator.TempJob);
         var fallingResources = FallingResources.ToEntityArray(Allocator.TempJob);
         var stackCounts = new NativeArray<int>(managerData.GridCounts.x * managerData.GridCounts.y, Allocator.TempJob, NativeArrayOptions.ClearMemory);
         
-        var spawnJobHandle = new SpawnResourcesJob{ CommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer().ToConcurrent()}.Schedule(SpawnResources, inputDependencies);
-        EndInitCommandBufferSystem.AddJobHandleForProducer(spawnJobHandle);
-        
         var countJobHandle = new CountStackedResourcesJob{ StackCounts = stackCounts, StackedResources = stackedResources }.Schedule();
-
-        inputDependencies = JobHandle.CombineDependencies(spawnJobHandle, inputDependencies);
+        
         inputDependencies = JobHandle.CombineDependencies( new ResourceUpdateGridPosJob{ ManagerData = managerData }.Schedule(FallingResources, inputDependencies), inputDependencies);
         
         var moveJobHandle = new ResourceMovementJob
