@@ -57,6 +57,6 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
 
         dstManager.AddComponentData(entity, beeManagerData);
         dstManager.AddComponentData(entity, spawnBeeData);
-        dstManager.AddSharedComponentData(entity, new BeeManagerSystem.TeamInfo {Mesh = BeeMesh, Material = BeeMaterial});
+        dstManager.AddSharedComponentData(entity, new RenderMeshInfo {Mesh = BeeMesh, Material = BeeMaterial});
     }
 }
