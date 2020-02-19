@@ -257,6 +257,7 @@ MonoBehaviour:
   BeeChaseForce: 50
   BeeAttackRange: 5
   BeeHitRange: 0.5
+  BeeDeathTime: 1
   TeamColours:
   - {r: 0.59607846, g: 0.67058825, b: 0.9490197, a: 1}
   - {r: 1, g: 0.9803922, b: 0.6156863, a: 0}

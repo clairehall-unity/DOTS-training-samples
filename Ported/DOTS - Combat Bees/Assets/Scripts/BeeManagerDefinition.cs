@@ -22,6 +22,7 @@ public struct BeeManagerData : IComponentData
     public float BeeHitRangeSq;
     public float BeeAttackForce;
     public float BeeChaseForce;
+    public float BeeDeathTime;
 
     public Color TeamAColour;
     public Color TeamBColour;
@@ -53,6 +54,7 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
     public float BeeChaseForce;
     public float BeeAttackRange;
     public float BeeHitRange;
+    public float BeeDeathTime;
     
     public Color[] TeamColours;
     
@@ -86,6 +88,7 @@ public class BeeManagerDefinition : MonoBehaviour, IConvertGameObjectToEntity
             BeeHitRangeSq = BeeHitRange * BeeHitRange,
             BeeAttackForce = this.BeeAttackForce,
             BeeChaseForce = this.BeeChaseForce,
+            BeeDeathTime = this.BeeDeathTime,
             TeamAColour = TeamColours[0],
             TeamBColour = TeamColours[1]
         };

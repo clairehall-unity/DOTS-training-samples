@@ -27,7 +27,7 @@ public class BeeManagerSystem : JobComponentSystem
 
     public struct DeadBee : IComponentData
     {
-        
+        public float DeathTimer;
     }
 
     public struct BeeTeam : ISharedComponentData
@@ -193,12 +193,20 @@ public class BeeManagerSystem : JobComponentSystem
         
         inputDependencies = JobHandle.CombineDependencies(scaleJobHandle, inputDependencies);
         
-        var scaleDeadJobHandle = Entities.ForEach((ref NonUniformScale scale, in Bee bee, in DeadBee deadBee) =>
+        var updateDeadJobHandle = Entities.ForEach((Entity entity, int entityInQueryIndex, ref NonUniformScale scale, ref DeadBee deadBee, in Bee bee) =>
         { 
             scale.Value.x = scale.Value.y = scale.Value.z = bee.Size;
+            deadBee.DeathTimer += deltaTime;
+
+            if (deadBee.DeathTimer > managerData.BeeDeathTime)
+            {
+                //TODO: Should we be pooling the entities instead
+                updateCommandBuffer.DestroyEntity(entityInQueryIndex, entity);
+            }
         }).Schedule(inputDependencies);
         
-        inputDependencies = JobHandle.CombineDependencies(scaleDeadJobHandle, inputDependencies);
+        EndUpdateCommandBufferSystem.AddJobHandleForProducer(updateDeadJobHandle);
+        inputDependencies = JobHandle.CombineDependencies(updateDeadJobHandle, inputDependencies);
         
         var moveJobHandle = Entities.ForEach((ref Bee bee, ref Translation translation, ref Rotation rotation) =>
         {
