@@ -36,45 +36,45 @@ public class BeeManagerSystem : JobComponentSystem
     }
     
     EntityCommandBufferSystem EndInitCommandBufferSystem;
+    EntityCommandBufferSystem EndUpdateCommandBufferSystem;
     
     EntityQuery BeeManager;
-    EntityQuery Bees;
-    EntityQuery[] BeeTeams;
+    EntityQuery BeeTeamMembers;
+
+    BeeTeam[] BeeTeams;
 
     protected override void OnCreate()
     {
         EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
+        EndUpdateCommandBufferSystem = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
         
         BeeManager = GetEntityQuery(ComponentType.ReadOnly<BeeManagerData>());
+        BeeTeamMembers = GetEntityQuery(ComponentType.ReadOnly<BeeTeam>(), ComponentType.ReadOnly<Bee>(), ComponentType.Exclude<DeadBee>());
         
-        BeeTeams = new EntityQuery[2] { GetEntityQuery(ComponentType.ReadOnly<BeeTeam>(), ComponentType.ReadOnly<Bee>()), GetEntityQuery(ComponentType.ReadOnly<BeeTeam>(), ComponentType.ReadOnly<Bee>()) };
-        
-        BeeTeams[0].SetSharedComponentFilter(new BeeTeam{TeamIndex = 0});
-        BeeTeams[1].SetSharedComponentFilter(new BeeTeam{TeamIndex = 1});
-
-        Bees = GetEntityQuery(typeof(Bee));
+        BeeTeams = new BeeTeam[2] { new BeeTeam{ TeamIndex = 0 }, new BeeTeam{ TeamIndex = 1 } };
     }
 
     protected override JobHandle OnUpdate(JobHandle inputDependencies)
     {
         var managerData = BeeManager.GetSingleton<BeeManagerData>();
-        var commandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer();
+        var initCommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer();
+        var updateCommandBuffer = EndUpdateCommandBufferSystem.CreateCommandBuffer().ToConcurrent();
 
         Entities.ForEach((Entity entity, RenderMeshInfo meshInfo, ref SpawnBeeData spawnBeeData) =>
             {
                 for (int i = 0; i < spawnBeeData.SpawnCount; i++)
                 {
                     var teamIndex = i % 2; 
-                    var beeEntity = commandBuffer.CreateEntity();
+                    var beeEntity = initCommandBuffer.CreateEntity();
                     
                     var position = Vector3.right * ((-managerData.FieldSize.x * 0.4f) + managerData.FieldSize.x * 0.8f * teamIndex);
       
                     var size = Mathf.Lerp(managerData.MinBeeSize, managerData.MaxBeeSize, Random.value);
                     var velocity = Random.insideUnitSphere * managerData.MaxBeeSpawnSpeed;
                     
-                    commandBuffer.AddComponent(beeEntity, new Translation { Value = position });
-                    commandBuffer.AddComponent(beeEntity, new NonUniformScale{ Value = new float3(size,  size, size) });
-                    commandBuffer.AddComponent(beeEntity, new Bee
+                    initCommandBuffer.AddComponent(beeEntity, new Translation { Value = position });
+                    initCommandBuffer.AddComponent(beeEntity, new NonUniformScale{ Value = new float3(size,  size, size) });
+                    initCommandBuffer.AddComponent(beeEntity, new Bee
                     {
                         Velocity = velocity,
                         SmoothPosition = position + (Vector3.right * 0.1f),
@@ -83,9 +83,9 @@ public class BeeManagerSystem : JobComponentSystem
                         IsAttacking = false,
                         TeamIndex = teamIndex
                     });
-                    commandBuffer.AddComponent(beeEntity, new Rotation{ Value = quaternion.identity });
-                    commandBuffer.AddSharedComponent(beeEntity, new BeeTeam { TeamIndex =  teamIndex });
-                    commandBuffer.AddSharedComponent(beeEntity, new RenderMeshWithColourInfo
+                    initCommandBuffer.AddComponent(beeEntity, new Rotation{ Value = quaternion.identity });
+                    initCommandBuffer.AddSharedComponent(beeEntity, new BeeTeam { TeamIndex =  teamIndex });
+                    initCommandBuffer.AddSharedComponent(beeEntity, new RenderMeshWithColourInfo
                     {
                         Colour = teamIndex == 0 ? managerData.TeamAColour : managerData.TeamBColour,
                         Mesh = meshInfo.Mesh,
@@ -93,7 +93,7 @@ public class BeeManagerSystem : JobComponentSystem
                     });
                 }
 
-                commandBuffer.RemoveComponent<SpawnBeeData>(entity);
+                initCommandBuffer.RemoveComponent<SpawnBeeData>(entity);
             }).WithoutBurst().Run();
 
         var deltaTime = Time.DeltaTime;
@@ -103,8 +103,14 @@ public class BeeManagerSystem : JobComponentSystem
         var translations = GetComponentDataFromEntity<Translation>(true);
         
         //TODO: Is there a native container that can access the entity arrays by index 
-        var beeTeamA = BeeTeams[0].ToEntityArray(Allocator.TempJob);
-        var beeTeamB = BeeTeams[1].ToEntityArray(Allocator.TempJob);
+        
+        BeeTeamMembers.SetSharedComponentFilter(BeeTeams[0]);
+        
+        var beeTeamA = BeeTeamMembers.ToEntityArray(Allocator.TempJob);
+        
+        BeeTeamMembers.SetSharedComponentFilter(BeeTeams[1]);
+        
+        var beeTeamB = BeeTeamMembers.ToEntityArray(Allocator.TempJob);
         
         var initVelocityJobHandle = Entities.WithNone<DeadBee>().ForEach((ref Bee bee, ref Translation translation, ref Rotation rotation, ref NonUniformScale scale) =>
         {
@@ -121,7 +127,7 @@ public class BeeManagerSystem : JobComponentSystem
         
         inputDependencies = JobHandle.CombineDependencies(deadBeeVelocityJobHandle, inputDependencies);
         
-        var targetJobHandle = Entities.WithReadOnly(deadBees).WithReadOnly(translations).ForEach((ref Bee bee, in Translation translation) =>
+        var targetJobHandle = Entities.WithReadOnly(deadBees).WithReadOnly(translations).ForEach((Entity entity, int entityInQueryIndex, ref Bee bee, in Translation translation) =>
         {
             bee.IsAttacking = false;
             
@@ -158,9 +164,8 @@ public class BeeManagerSystem : JobComponentSystem
                         
                         if (sqrDist < managerData.BeeHitRangeSq)
                         {
+                            updateCommandBuffer.AddComponent(entityInQueryIndex, bee.TargetBee, new DeadBee());
                             bee.TargetBee = Entity.Null;
-                            
-                            //TODO: kill the other bee
                         }
                         else
                         {
@@ -171,6 +176,8 @@ public class BeeManagerSystem : JobComponentSystem
                 }
             }
         }).Schedule(inputDependencies);
+        
+        EndUpdateCommandBufferSystem.AddJobHandleForProducer(targetJobHandle);
         
         inputDependencies = JobHandle.CombineDependencies(targetJobHandle, inputDependencies);
         inputDependencies = JobHandle.CombineDependencies(beeTeamA.Dispose(inputDependencies), beeTeamB.Dispose(inputDependencies), inputDependencies);
