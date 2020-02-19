@@ -164,6 +164,7 @@ public class BeeManagerSystem : JobComponentSystem
                         
                         if (sqrDist < managerData.BeeHitRangeSq)
                         {
+                            //TODO: Death particles
                             updateCommandBuffer.AddComponent(entityInQueryIndex, bee.TargetBee, new DeadBee());
                             bee.TargetBee = Entity.Null;
                         }
@@ -197,6 +198,8 @@ public class BeeManagerSystem : JobComponentSystem
         { 
             scale.Value.x = scale.Value.y = scale.Value.z = bee.Size;
             deadBee.DeathTimer += deltaTime;
+            
+            //TODO: more death particles
 
             if (deadBee.DeathTimer > managerData.BeeDeathTime)
             {
