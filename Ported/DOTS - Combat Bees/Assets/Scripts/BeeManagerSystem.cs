@@ -112,10 +112,36 @@ public class BeeManagerSystem : JobComponentSystem
         
         var beeTeamB = BeeTeamMembers.ToEntityArray(Allocator.TempJob);
         
-        var initVelocityJobHandle = Entities.WithNone<DeadBee>().ForEach((ref Bee bee, ref Translation translation, ref Rotation rotation, ref NonUniformScale scale) =>
+        var initVelocityJobHandle = Entities.WithNone<DeadBee>().WithReadOnly(translations).ForEach((ref Bee bee, in Translation translation) =>
         {
             bee.Velocity += (Vector3) random.NextFloat3Direction() * (managerData.BeeFlightJitter * deltaTime);
             bee.Velocity *= (1f - managerData.BeeFlightDamping);
+            
+            var allyBees = bee.TeamIndex == 0 ? beeTeamA : beeTeamB;
+
+            int numAllyBees = allyBees.Length;
+
+            if (numAllyBees > 0)
+            {
+                var attractiveFriend = allyBees[random.NextInt(0,numAllyBees - 1)];
+                var attractivePosition = translations[attractiveFriend].Value;
+                Vector3 delta = attractivePosition - translation.Value;
+                
+                float sqrDist = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+                
+                if (sqrDist > 0f) {
+                    bee.Velocity += delta * (float)((managerData.BeeTeamAttraction * deltaTime) / Math.Sqrt(sqrDist));
+                }
+                
+                var repellentFriend = allyBees[random.NextInt(0,numAllyBees - 1)];
+                var repellentPosition = translations[repellentFriend].Value;
+                delta = repellentPosition - translation.Value;
+                sqrDist = Mathf.Sqrt(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
+                if (sqrDist > 0f) {
+                    bee.Velocity -= delta * (float)(managerData.BeeTeamRepulsion * deltaTime / Math.Sqrt(sqrDist));
+                }
+            }
+            
         }).Schedule(inputDependencies);
         
         inputDependencies = JobHandle.CombineDependencies(initVelocityJobHandle, inputDependencies);
