@@ -246,8 +246,22 @@ MonoBehaviour:
   StartBeeCount: 100
   MinBeeSize: 0.25
   MaxBeeSize: 0.5
-  BeePrefab: {fileID: 5954413799634017108, guid: 5654c5f915847496792e9b682402fb2c,
-    type: 3}
+  MaxBeeSpawnSpeed: 75
+  BeeGravity: -20
+  BeeFlightJitter: 200
+  BeeFlightDamping: 0.1
+  BeeSpeedStretch: 0.2
+  BeeRotationStiffness: 5
+  BeeAggression: 0.5
+  BeeAttackForce: 500
+  BeeChaseForce: 50
+  BeeAttackRange: 5
+  BeeHitRange: 0.5
+  TeamColours:
+  - {r: 0.59607846, g: 0.67058825, b: 0.9490197, a: 1}
+  - {r: 1, g: 0.9803922, b: 0.6156863, a: 0}
+  BeeMesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+  BeeMaterial: {fileID: 2100000, guid: ba87a91ffdec441d0bcb1990915df8e3, type: 2}
   FieldObject: {fileID: 2040692840}
 --- !u!114 &253092463
 MonoBehaviour:
@@ -489,8 +503,8 @@ MonoBehaviour:
   SpawnRate: 10
   BeesPerResource: 8
   StartResourceCount: 500
-  ResourcePrefab: {fileID: 4622066252202631, guid: 43038cf89b29843e593b3063e56aca6a,
-    type: 3}
+  ResourceMesh: {fileID: 10206, guid: 0000000000000000e000000000000000, type: 0}
+  ResourceMaterial: {fileID: 2100000, guid: 48c8f6b8370cd48968d73922a4d3ec2d, type: 2}
   FieldObject: {fileID: 2040692840}
 --- !u!4 &1162283307
 Transform:
