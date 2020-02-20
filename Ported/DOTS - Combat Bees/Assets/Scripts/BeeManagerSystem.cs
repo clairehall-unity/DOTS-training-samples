@@ -47,8 +47,6 @@ public class BeeManagerSystem : JobComponentSystem
 
     BeeTeam[] BeeTeams;
 
-    Unity.Mathematics.Random Random;
-
     protected override void OnCreate()
     {
         EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
@@ -61,8 +59,6 @@ public class BeeManagerSystem : JobComponentSystem
         BeeTeamMembers = GetEntityQuery(ComponentType.ReadOnly<BeeTeam>(), ComponentType.ReadOnly<Bee>(), ComponentType.Exclude<DeadBee>());
 
         BeeTeams = new BeeTeam[2] { new BeeTeam{ TeamIndex = 0 }, new BeeTeam{ TeamIndex = 1 } };
-        
-        Random = new Unity.Mathematics.Random((uint) System.DateTime.Now.Millisecond + 1);
     }
 
     protected override JobHandle OnUpdate(JobHandle inputDependencies)
@@ -71,6 +67,8 @@ public class BeeManagerSystem : JobComponentSystem
         var resourceManagerData = ResourceManager.GetSingleton<ResourceManagerData>();
         var initCommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer();
         var updateCommandBuffer = EndUpdateCommandBufferSystem.CreateCommandBuffer().ToConcurrent();
+        
+        var random = new Unity.Mathematics.Random((uint) System.DateTime.Now.Millisecond + 1);
 
         Entities.ForEach((Entity entity, RenderMeshInfo meshInfo, ref SpawnBeeData spawnBeeData) =>
             {
@@ -81,8 +79,8 @@ public class BeeManagerSystem : JobComponentSystem
                     
                     var position = Vector3.right * ((-managerData.FieldSize.x * 0.4f) + managerData.FieldSize.x * 0.8f * teamIndex);
       
-                    var size = Mathf.Lerp(managerData.MinBeeSize, managerData.MaxBeeSize, Random.NextFloat());
-                    var velocity = Random.NextFloat3Direction() * managerData.MaxBeeSpawnSpeed;
+                    var size = Mathf.Lerp(managerData.MinBeeSize, managerData.MaxBeeSize, random.NextFloat());
+                    var velocity = random.NextFloat3Direction() * managerData.MaxBeeSpawnSpeed;
                     
                     initCommandBuffer.AddComponent(beeEntity, new Translation { Value = position });
                     initCommandBuffer.AddComponent(beeEntity, new NonUniformScale{ Value = new float3(size,  size, size) });
@@ -109,7 +107,6 @@ public class BeeManagerSystem : JobComponentSystem
             }).WithoutBurst().Run();
 
         var deltaTime = Time.DeltaTime;
-        var random = Random;
         
         var deadBees = GetComponentDataFromEntity<DeadBee>(true);
         var translations = GetComponentDataFromEntity<Translation>(true);
