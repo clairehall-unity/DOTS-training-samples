@@ -128,8 +128,8 @@ public class ResourceManagerSystem : JobComponentSystem
         EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
         EndSimCommandBufferSystem = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
         
-        FallingResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>());
-        StackedResources = GetEntityQuery(ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<Resource>(), ComponentType.ReadOnly<StackedResource>());
+        FallingResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>(), ComponentType.Exclude<ResourceHolder>());
+        StackedResources = GetEntityQuery(ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<Resource>(), ComponentType.ReadOnly<StackedResource>(), ComponentType.Exclude<ResourceHolder>());
         CarriedResources = GetEntityQuery(ComponentType.ReadOnly<ResourceHolder>());
 
         ResourceManager = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>());
