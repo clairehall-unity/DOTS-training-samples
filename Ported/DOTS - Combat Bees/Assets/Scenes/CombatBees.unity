@@ -253,10 +253,14 @@ MonoBehaviour:
   BeeSpeedStretch: 0.2
   BeeRotationStiffness: 5
   BeeAggression: 0.5
+  BeeTeamAttraction: 5
+  BeeTeamRepulsion: 4
   BeeAttackForce: 500
   BeeChaseForce: 50
+  BeeCarryForce: 25
   BeeAttackRange: 5
   BeeHitRange: 0.5
+  BeeGrabRange: 0.5
   BeeDeathTime: 1
   TeamColours:
   - {r: 0.59607846, g: 0.67058825, b: 0.9490197, a: 1}

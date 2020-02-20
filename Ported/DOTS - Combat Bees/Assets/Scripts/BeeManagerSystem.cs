@@ -8,7 +8,6 @@ using Unity.Mathematics;
 using Unity.Transforms;
 using UnityEngine;
 using UnityEngine.Assertions.Comparers;
-using Random = UnityEngine.Random;
 using ReadOnly = Unity.Collections.ReadOnlyAttribute;
 
 public class BeeManagerSystem : JobComponentSystem
@@ -41,10 +40,14 @@ public class BeeManagerSystem : JobComponentSystem
     EntityCommandBufferSystem EndUpdateCommandBufferSystem;
     
     EntityQuery BeeManager;
+    EntityQuery ResourceManager;
+    
     EntityQuery BeeTeamMembers;
     EntityQuery Resources;
 
     BeeTeam[] BeeTeams;
+
+    Unity.Mathematics.Random Random;
 
     protected override void OnCreate()
     {
@@ -53,15 +56,19 @@ public class BeeManagerSystem : JobComponentSystem
 
         Resources = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerSystem.Resource>());
 
+        ResourceManager = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>());
         BeeManager = GetEntityQuery(ComponentType.ReadOnly<BeeManagerData>());
         BeeTeamMembers = GetEntityQuery(ComponentType.ReadOnly<BeeTeam>(), ComponentType.ReadOnly<Bee>(), ComponentType.Exclude<DeadBee>());
 
         BeeTeams = new BeeTeam[2] { new BeeTeam{ TeamIndex = 0 }, new BeeTeam{ TeamIndex = 1 } };
+        
+        Random = new Unity.Mathematics.Random((uint) System.DateTime.Now.Millisecond + 1);
     }
 
     protected override JobHandle OnUpdate(JobHandle inputDependencies)
     {
         var managerData = BeeManager.GetSingleton<BeeManagerData>();
+        var resourceManagerData = ResourceManager.GetSingleton<ResourceManagerData>();
         var initCommandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer();
         var updateCommandBuffer = EndUpdateCommandBufferSystem.CreateCommandBuffer().ToConcurrent();
 
@@ -74,8 +81,8 @@ public class BeeManagerSystem : JobComponentSystem
                     
                     var position = Vector3.right * ((-managerData.FieldSize.x * 0.4f) + managerData.FieldSize.x * 0.8f * teamIndex);
       
-                    var size = Mathf.Lerp(managerData.MinBeeSize, managerData.MaxBeeSize, Random.value);
-                    var velocity = Random.insideUnitSphere * managerData.MaxBeeSpawnSpeed;
+                    var size = Mathf.Lerp(managerData.MinBeeSize, managerData.MaxBeeSize, Random.NextFloat());
+                    var velocity = Random.NextFloat3Direction() * managerData.MaxBeeSpawnSpeed;
                     
                     initCommandBuffer.AddComponent(beeEntity, new Translation { Value = position });
                     initCommandBuffer.AddComponent(beeEntity, new NonUniformScale{ Value = new float3(size,  size, size) });
@@ -102,8 +109,8 @@ public class BeeManagerSystem : JobComponentSystem
             }).WithoutBurst().Run();
 
         var deltaTime = Time.DeltaTime;
-        var random = new Unity.Mathematics.Random((uint) System.DateTime.Now.Millisecond + 1);
-
+        var random = Random;
+        
         var deadBees = GetComponentDataFromEntity<DeadBee>(true);
         var translations = GetComponentDataFromEntity<Translation>(true);
         
@@ -169,7 +176,8 @@ public class BeeManagerSystem : JobComponentSystem
             
             if (bee.TargetBee == Entity.Null && bee.TargetResource == Entity.Null)
             {
-                if (random.NextFloat() < managerData.BeeAggression)
+                var aggression = random.NextFloat();
+                if (aggression < managerData.BeeAggression)
                 {
                     int enemyTeam = (bee.TeamIndex + 1) % 2;
                     var enemyBees = enemyTeam == 0 ? beeTeamA : beeTeamB;
@@ -248,9 +256,23 @@ public class BeeManagerSystem : JobComponentSystem
                     }
                     else
                     {
-                        bee.IsHolding = true;
-                        
-                        //TODO: Carry to team location
+                        var position = translation.Value;
+
+                        var targetPos = new float3(-managerData.FieldSize.x * .45f + (managerData.FieldSize.x * .9f * bee.TeamIndex),0f, position.z);
+                        var delta = targetPos - position;
+                        var sqrDist = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+  
+                        if (sqrDist < 1f)
+                        {
+                            bee.TargetResource = Entity.Null;
+                            
+                            updateCommandBuffer.RemoveComponent<ResourceManagerSystem.ResourceHolder>(entityInQueryIndex, resource);
+                        } 
+                        else 
+                        {
+                            bee.Velocity += (Vector3) delta * (managerData.BeeCarryForce * deltaTime / Mathf.Sqrt(sqrDist));
+                            bee.IsHolding = true;
+                        }
                     }
                 } else if (!stackedResources.Exists(resource) || !stackedResources[resource].IsOnTop)
                 {
@@ -259,11 +281,16 @@ public class BeeManagerSystem : JobComponentSystem
                 else
                 {
                     var delta = translations[resource].Value - translation.Value;
-                    float sqrDist = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-                    if (sqrDist > managerData.BeeGrabRangeSq) {
+                    var sqrDist = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+                    
+                    if (sqrDist > managerData.BeeGrabRangeSq) 
+                    {
                         bee.Velocity += (Vector3) delta * (managerData.BeeChaseForce * deltaTime / Mathf.Sqrt(sqrDist));
-                    } else {
-                        //ResourceManager.GrabResource(bee,resource);
+                    } 
+                    else 
+                    {
+                        updateCommandBuffer.RemoveComponent<ResourceManagerSystem.StackedResource>(entityInQueryIndex, resource);
+                        updateCommandBuffer.AddComponent(entityInQueryIndex, resource, new ResourceManagerSystem.ResourceHolder { Holder = entity });
                     }
                 }
             }
@@ -306,6 +333,7 @@ public class BeeManagerSystem : JobComponentSystem
         var moveJobHandle = Entities.ForEach((ref Bee bee, ref Translation translation, ref Rotation rotation) =>
         {
             var position = (Vector3)translation.Value + (bee.Velocity * deltaTime);
+            float resourceModifier = bee.IsHolding ? resourceManagerData.ResourceSize : 0f;
 
             if (Math.Abs(position.x) > managerData.FieldSize.x * .5f) {
                 position.x = (managerData.FieldSize.x * .5f) * Mathf.Sign(position.x);
@@ -319,20 +347,16 @@ public class BeeManagerSystem : JobComponentSystem
                 bee.Velocity.x *= .8f;
                 bee.Velocity.y *= .8f;
             }
-            
-            /*float resourceModifier = 0f; TODO: resource modifier to velocity
-            if (bee.isHoldingResource) {
-                resourceModifier = ResourceManager.instance.resourceSize;
+
+            if (Math.Abs(position.y) > managerData.FieldSize.y * .5f - resourceModifier) {
+                position.y = (managerData.FieldSize.y * .5f - resourceModifier) * Mathf.Sign(position.y);
+                bee.Velocity.y *= -.5f;
+                bee.Velocity.z *= .8f;
+                bee.Velocity.x *= .8f;
             }
-            if (Math.Abs(bee.position.y) > Field.size.y * .5f - resourceModifier) {
-                bee.position.y = (Field.size.y * .5f - resourceModifier) * Mathf.Sign(bee.position.y);
-                bee.velocity.y *= -.5f;
-                bee.velocity.z *= .8f;
-                bee.velocity.x *= .8f;
-            }*/
             
             translation.Value = position;
-
+            
             var oldPos = bee.SmoothPosition;
             bee.SmoothPosition = bee.IsAttacking
                 ? Vector3.Lerp(bee.SmoothPosition, position, deltaTime * managerData.BeeRotationStiffness)

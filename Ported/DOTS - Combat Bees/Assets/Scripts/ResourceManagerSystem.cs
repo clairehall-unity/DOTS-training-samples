@@ -121,9 +121,8 @@ public class ResourceManagerSystem : JobComponentSystem
 
     EntityQuery FallingResources;
     EntityQuery StackedResources;
-    EntityQuery SpawnResources;
+    EntityQuery CarriedResources;
     EntityQuery ResourceManager;
-
     protected override void OnCreate()
     {
         EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
@@ -131,7 +130,7 @@ public class ResourceManagerSystem : JobComponentSystem
         
         FallingResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>());
         StackedResources = GetEntityQuery(ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<Resource>(), ComponentType.ReadOnly<StackedResource>());
-        SpawnResources = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>(), ComponentType.ReadOnly<SpawnResourceData>());
+        CarriedResources = GetEntityQuery(ComponentType.ReadOnly<ResourceHolder>());
 
         ResourceManager = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerData>());
     }
@@ -140,6 +139,8 @@ public class ResourceManagerSystem : JobComponentSystem
     {
         var managerData = ResourceManager.GetSingleton<ResourceManagerData>();
         var commandBuffer = EndInitCommandBufferSystem.CreateCommandBuffer();
+        var updateCommandBuffer = EndSimCommandBufferSystem.CreateCommandBuffer().ToConcurrent();
+        var deltaTime = Time.DeltaTime;
 
         Entities.ForEach((Entity entity, RenderMeshInfo meshInfo, ref SpawnResourceData spawnResourceData) =>
         {
@@ -168,7 +169,7 @@ public class ResourceManagerSystem : JobComponentSystem
 
             commandBuffer.RemoveComponent<SpawnResourceData>(entity);
         }).WithoutBurst().Run();
-
+        
         var stackedResources = StackedResources.ToComponentDataArray<Resource>(Allocator.TempJob);
         var fallingResources = FallingResources.ToEntityArray(Allocator.TempJob);
         var stackCounts = new NativeArray<int>(managerData.GridCounts.x * managerData.GridCounts.y, Allocator.TempJob, NativeArrayOptions.ClearMemory);
@@ -176,11 +177,44 @@ public class ResourceManagerSystem : JobComponentSystem
         var countJobHandle = new CountStackedResourcesJob{ StackCounts = stackCounts, StackedResources = stackedResources }.Schedule();
         
         inputDependencies = JobHandle.CombineDependencies( new ResourceUpdateGridPosJob{ ManagerData = managerData }.Schedule(FallingResources, inputDependencies), inputDependencies);
+
+        var translations = GetComponentDataFromEntity<Translation>(true);
+        var bees = GetComponentDataFromEntity<BeeManagerSystem.Bee>(true);
+        var deadBees = GetComponentDataFromEntity<BeeManagerSystem.DeadBee>(true);
+
+        var carryTranslations = new NativeHashMap<int, float3>(CarriedResources.CalculateEntityCount(), Allocator.TempJob);
+
+        var carriedJobHandle = Entities.WithNativeDisableParallelForRestriction(carryTranslations).WithReadOnly(translations).WithReadOnly(bees).WithReadOnly(deadBees).ForEach((Entity entity, int entityInQueryIndex, ref Resource resource, in Translation translation, in ResourceHolder holder) =>
+            {
+                if (deadBees.Exists(holder.Holder))
+                {
+                    updateCommandBuffer.RemoveComponent<ResourceHolder>(entityInQueryIndex, entity);
+                    carryTranslations[entity.Index] = translation.Value;
+                }
+                else
+                {
+                    var beePos = (Vector3)translations[holder.Holder].Value;
+                    var bee = bees[holder.Holder];
+                    var targetPos = beePos - Vector3.up * (managerData.ResourceSize + bee.Size)*.5f;
+                    carryTranslations[entity.Index] = Vector3.Lerp(translation.Value,targetPos,managerData.CarryStiffness * deltaTime);
+                    resource.Velocity = bee.Velocity;
+                }
+            }).Schedule(inputDependencies);
+
+        EndSimCommandBufferSystem.AddJobHandleForProducer(carriedJobHandle);
+        inputDependencies = JobHandle.CombineDependencies(carriedJobHandle, inputDependencies);
+
+        var updateCarriedJobHandle = Entities.WithReadOnly(carryTranslations).ForEach((Entity entity, ref Translation translation, in ResourceHolder holder) =>
+            {
+                if(carryTranslations.ContainsKey(entity.Index)) translation.Value = carryTranslations[entity.Index];
+            }).Schedule(inputDependencies);
         
+        inputDependencies = JobHandle.CombineDependencies(updateCarriedJobHandle, inputDependencies);
+
         var moveJobHandle = new ResourceMovementJob
         {
             ManagerData = managerData,
-            DeltaTime = Time.DeltaTime,
+            DeltaTime = deltaTime,
         }.Schedule(FallingResources, inputDependencies);
 
         inputDependencies = JobHandle.CombineDependencies(moveJobHandle, countJobHandle, inputDependencies);
@@ -204,8 +238,9 @@ public class ResourceManagerSystem : JobComponentSystem
             }).Schedule(inputDependencies);
         
         inputDependencies = JobHandle.CombineDependencies(stackTopJobHandle, inputDependencies);
-        
-        return JobHandle.CombineDependencies(stackCounts.Dispose(inputDependencies), stackedResources.Dispose(inputDependencies), fallingResources.Dispose(inputDependencies));
+
+        var disposeJobHandle = JobHandle.CombineDependencies(carryTranslations.Dispose(inputDependencies), stackCounts.Dispose(inputDependencies));
+        return JobHandle.CombineDependencies(disposeJobHandle, stackedResources.Dispose(inputDependencies), fallingResources.Dispose(inputDependencies));
     }
     
     static void GetGridIndex(Vector2 minGridPos, Vector2 gridSize, Vector2Int gridCounts, Vector3 pos, out int gridX, out int gridY) {
