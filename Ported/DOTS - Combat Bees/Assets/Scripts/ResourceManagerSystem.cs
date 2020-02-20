@@ -24,6 +24,12 @@ public class ResourceManagerSystem : JobComponentSystem
     public struct StackedResource : IComponentData
     {
         public int StackIndex;
+        public bool IsOnTop;
+    }
+
+    public struct ResourceHolder : IComponentData
+    {
+        public Entity Holder;
     }
     
     [BurstCompile]
@@ -191,8 +197,13 @@ public class ResourceManagerSystem : JobComponentSystem
 
         EndSimCommandBufferSystem.AddJobHandleForProducer(stackJobHandle);
         inputDependencies = JobHandle.CombineDependencies(stackJobHandle, inputDependencies);
+
+        var stackTopJobHandle = Entities.WithReadOnly(stackCounts).ForEach((ref StackedResource stacked, in Resource resource) =>
+            {
+                stacked.IsOnTop = ((stackCounts[resource.GridIndex] - 1) == stacked.StackIndex);
+            }).Schedule(inputDependencies);
         
-        //TODO: DrawMeshInstanced instead of normal mesh rendering flow?
+        inputDependencies = JobHandle.CombineDependencies(stackTopJobHandle, inputDependencies);
         
         return JobHandle.CombineDependencies(stackCounts.Dispose(inputDependencies), stackedResources.Dispose(inputDependencies), fallingResources.Dispose(inputDependencies));
     }

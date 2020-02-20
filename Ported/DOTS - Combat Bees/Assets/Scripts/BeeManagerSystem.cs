@@ -1,4 +1,5 @@
 using System;
+using System.Resources;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
@@ -20,6 +21,7 @@ public class BeeManagerSystem : JobComponentSystem
         public float Size;
         public int TeamIndex; //TODO: Can the duplication of data between this and the BeeTeam shared component data be resolved?
         public bool IsAttacking;
+        public bool IsHolding;
 
         public Entity TargetBee;
         public Entity TargetResource;
@@ -40,6 +42,7 @@ public class BeeManagerSystem : JobComponentSystem
     
     EntityQuery BeeManager;
     EntityQuery BeeTeamMembers;
+    EntityQuery Resources;
 
     BeeTeam[] BeeTeams;
 
@@ -47,10 +50,12 @@ public class BeeManagerSystem : JobComponentSystem
     {
         EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
         EndUpdateCommandBufferSystem = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
-        
+
+        Resources = GetEntityQuery(ComponentType.ReadOnly<ResourceManagerSystem.Resource>());
+
         BeeManager = GetEntityQuery(ComponentType.ReadOnly<BeeManagerData>());
         BeeTeamMembers = GetEntityQuery(ComponentType.ReadOnly<BeeTeam>(), ComponentType.ReadOnly<Bee>(), ComponentType.Exclude<DeadBee>());
-        
+
         BeeTeams = new BeeTeam[2] { new BeeTeam{ TeamIndex = 0 }, new BeeTeam{ TeamIndex = 1 } };
     }
 
@@ -102,6 +107,10 @@ public class BeeManagerSystem : JobComponentSystem
         var deadBees = GetComponentDataFromEntity<DeadBee>(true);
         var translations = GetComponentDataFromEntity<Translation>(true);
         
+        var stackedResources = GetComponentDataFromEntity<ResourceManagerSystem.StackedResource>(true);
+        var resourceHolders = GetComponentDataFromEntity<ResourceManagerSystem.ResourceHolder>(true);
+        var resources = Resources.ToEntityArray(Allocator.TempJob);
+
         //TODO: Is there a native container that can access the entity arrays by index 
         
         BeeTeamMembers.SetSharedComponentFilter(BeeTeams[0]);
@@ -153,19 +162,36 @@ public class BeeManagerSystem : JobComponentSystem
         
         inputDependencies = JobHandle.CombineDependencies(deadBeeVelocityJobHandle, inputDependencies);
         
-        var targetJobHandle = Entities.WithReadOnly(deadBees).WithReadOnly(translations).ForEach((Entity entity, int entityInQueryIndex, ref Bee bee, in Translation translation) =>
+        var targetJobHandle = Entities.WithReadOnly(deadBees).WithReadOnly(translations).WithReadOnly(stackedResources).WithReadOnly(resourceHolders).ForEach((Entity entity, int entityInQueryIndex, ref Bee bee, in Translation translation) =>
         {
             bee.IsAttacking = false;
+            bee.IsHolding = false;
             
-            if (bee.TargetBee == Entity.Null && bee.TargetResource == Entity.Null && random.NextFloat() < managerData.BeeAggression)
+            if (bee.TargetBee == Entity.Null && bee.TargetResource == Entity.Null)
             {
-                int enemyTeam = (bee.TeamIndex + 1) % 2;
-                var enemyBees = enemyTeam == 0 ? beeTeamA : beeTeamB;
-                int numEnemyBees = enemyBees.Length;
-                
-                if (numEnemyBees > 0)
+                if (random.NextFloat() < managerData.BeeAggression)
                 {
-                    bee.TargetBee = enemyBees[random.NextInt(0, numEnemyBees - 1)];
+                    int enemyTeam = (bee.TeamIndex + 1) % 2;
+                    var enemyBees = enemyTeam == 0 ? beeTeamA : beeTeamB;
+                    int numEnemyBees = enemyBees.Length;
+                
+                    if (numEnemyBees > 0)
+                    {
+                        bee.TargetBee = enemyBees[random.NextInt(0, numEnemyBees - 1)];
+                    }   
+                }
+                else
+                {
+                    var numResources = resources.Length;
+
+                    if (numResources > 0)
+                    {
+                        var resource = resources[random.NextInt(0, numResources - 1)];
+                        if (stackedResources.Exists(resource) && stackedResources[resource].IsOnTop)
+                        {
+                            bee.TargetResource = resource;
+                        }
+                    }
                 }
             }
             else if (bee.TargetBee != Entity.Null)
@@ -181,8 +207,7 @@ public class BeeManagerSystem : JobComponentSystem
                     
                     if (sqrDist > managerData.BeeAttackRangeSq)
                     {
-                        bee.Velocity += (Vector3) delta *
-                                        ((managerData.BeeChaseForce * deltaTime) / Mathf.Sqrt(sqrDist));
+                        bee.Velocity += (Vector3) delta * ((managerData.BeeChaseForce * deltaTime) / Mathf.Sqrt(sqrDist));
                     }
                     else
                     {
@@ -196,9 +221,49 @@ public class BeeManagerSystem : JobComponentSystem
                         }
                         else
                         {
-                            bee.Velocity += (Vector3) delta *
-                                            ((managerData.BeeAttackForce * deltaTime) / Mathf.Sqrt(sqrDist));
+                            bee.Velocity += (Vector3) delta * ((managerData.BeeAttackForce * deltaTime) / Mathf.Sqrt(sqrDist));
                         }
+                    }
+                }
+            }
+            else if (bee.TargetResource != Entity.Null)
+            {
+                var resource = bee.TargetResource;
+
+                if (resourceHolders.Exists(resource))
+                {
+                    var holder = resourceHolders[resource].Holder;
+                    if (holder != entity)
+                    {
+                        var allyBees = bee.TeamIndex == 0 ? beeTeamA : beeTeamB;
+
+                        if (allyBees.Contains(holder))
+                        {
+                            bee.TargetResource = Entity.Null;
+                        }
+                        else
+                        {
+                            bee.TargetBee = holder;
+                        }
+                    }
+                    else
+                    {
+                        bee.IsHolding = true;
+                        
+                        //TODO: Carry to team location
+                    }
+                } else if (!stackedResources.Exists(resource) || !stackedResources[resource].IsOnTop)
+                {
+                    bee.TargetResource = Entity.Null;
+                }
+                else
+                {
+                    var delta = translations[resource].Value - translation.Value;
+                    float sqrDist = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+                    if (sqrDist > managerData.BeeGrabRangeSq) {
+                        bee.Velocity += (Vector3) delta * (managerData.BeeChaseForce * deltaTime / Mathf.Sqrt(sqrDist));
+                    } else {
+                        //ResourceManager.GrabResource(bee,resource);
                     }
                 }
             }
@@ -208,6 +273,7 @@ public class BeeManagerSystem : JobComponentSystem
         
         inputDependencies = JobHandle.CombineDependencies(targetJobHandle, inputDependencies);
         inputDependencies = JobHandle.CombineDependencies(beeTeamA.Dispose(inputDependencies), beeTeamB.Dispose(inputDependencies), inputDependencies);
+        inputDependencies = JobHandle.CombineDependencies(resources.Dispose(inputDependencies), inputDependencies);
 
         var scaleJobHandle = Entities.WithNone<DeadBee>().ForEach((ref NonUniformScale scale, in Bee bee) =>
         {
