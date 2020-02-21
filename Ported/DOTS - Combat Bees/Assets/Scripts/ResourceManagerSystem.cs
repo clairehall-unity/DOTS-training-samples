@@ -12,6 +12,7 @@ using UnityEngine;
 using ReadOnly = Unity.Collections.ReadOnlyAttribute;
 using Random = UnityEngine.Random;
 
+[UpdateBefore(typeof(RenderManagerSystem))]
 public class ResourceManagerSystem : JobComponentSystem
 {
     public struct Resource : IComponentData
@@ -125,8 +126,8 @@ public class ResourceManagerSystem : JobComponentSystem
     EntityQuery ResourceManager;
     protected override void OnCreate()
     {
-        EndInitCommandBufferSystem = World.GetExistingSystem<EndInitializationEntityCommandBufferSystem>();
-        EndSimCommandBufferSystem = World.GetExistingSystem<EndSimulationEntityCommandBufferSystem>();
+        EndInitCommandBufferSystem = World.GetOrCreateSystem<EndInitializationEntityCommandBufferSystem>();
+        EndSimCommandBufferSystem = World.GetOrCreateSystem<EndSimulationEntityCommandBufferSystem>();
         
         FallingResources = GetEntityQuery(typeof(Translation), typeof(Resource), ComponentType.Exclude<StackedResource>(), ComponentType.Exclude<ResourceHolder>());
         StackedResources = GetEntityQuery(ComponentType.ReadOnly<Translation>(), ComponentType.ReadOnly<Resource>(), ComponentType.ReadOnly<StackedResource>(), ComponentType.Exclude<ResourceHolder>());
